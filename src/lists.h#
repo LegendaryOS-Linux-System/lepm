@@ -1,0 +1,59 @@
+use "std -> fs" from "fs"
+
+;; Listy pakietów (`package-list/*.list`): jedna nazwa na linię, `#` zaczyna komentarz, puste linie pomijane.
+;; Używa tylko pomocników lrpm::pure (alias `rp` z main.h#); żadnych kopii libfasttree.
+
+fn contains(xs: [string], s: string) -> bool is
+    let mut i: int = 0
+    while i < xs.len() is
+        if xs[i] == s is return true end
+        i += 1
+    end
+    return false
+end
+
+;; Pakiety z plików --list (w podanej kolejności) i --pkg; duplikaty usuwane.
+pub fn collect(files: [string], extra: [string]) -> [string] is
+    let mut out: [string] = []
+    let mut f: int = 0
+    while f < files.len() is
+        if fs::exists(files[f]) is
+            let ls: [string] = rp::pure::split(fs::read(files[f]), "\n")
+            let mut k: int = 0
+            while k < ls.len() is
+                let mut t: string = rp::pure::trim(ls[k])
+                let h: int = rp::pure::find(t, "#")
+                if h >= 0 is t = rp::pure::trim(t[0..h]) end
+                k += 1
+                if t != "" && !contains(out, t) is out.push(t) end
+            end
+        end
+        f += 1
+    end
+    let mut e: int = 0
+    while e < extra.len() is
+        if !contains(out, extra[e]) is out.push(extra[e]) end
+        e += 1
+    end
+    return out
+end
+
+;; "" gdy wszystkie nazwy bezpieczne (trafiają do solvera i poleceń).
+pub fn validate(names: [string]) -> string is
+    let mut i: int = 0
+    while i < names.len() is
+        if !rp::pure::safe_name(names[i]) is return "niepoprawna nazwa pakietu: '" + names[i] + "'" end
+        i += 1
+    end
+    return ""
+end
+
+;; Katalog docelowy: musi istnieć lub dać się utworzyć; w trybie plan nic nie tworzymy.
+pub fn ensure_root(root: string, dry: bool) -> string is
+    if dry is return "" end
+    if !fs::exists(root) is
+        if !fs::mkdir(root) is return "nie można utworzyć " + root end
+    end
+    if !fs::is_dir(root) is return root + " nie jest katalogiem" end
+    return ""
+end
