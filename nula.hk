@@ -1,0 +1,24 @@
+[package]
+-> name        => lepm
+-> version     => 0.1.0
+-> description => lepm — menedżer pakietów używany WYŁĄCZNIE przy budowie obrazów LegendaryOS (bootstrap rootfs z RPM bez dnf)
+-> authors     => ["LegendaryOS Team"]
+-> license     => MIT
+-> keywords    => ["lepm", "bootstrap", "rpm", "satsolv", "legendaryos", "builder"]
+-> readme      => README.md
+-> lang        => [h#, z#]
+
+! Zależności bit wykrywa nula z kodu (use "bit -> lrpm" w src/main.h#).
+! lrpm ciągnie libfasttree i satsolv — żadnych kopii źródeł w tym repo.
+
+[layout]
+-> src         => src
+-> mod         => mod
+
+[commands]
+-> check
+--> run => bit check
+--> description => Sprawdź typy
+-> plan
+--> run => bit run -- plan --root /tmp/lepm-root --repos ../LegendaryOS/repos.hk --policy ../LegendaryOS/compat.hk --list ../LegendaryOS/package-list/base.list
+--> description => Pokaż, co zostałoby zainstalowane (bez pobierania)
