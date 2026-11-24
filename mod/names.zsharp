@@ -1,0 +1,31 @@
+namespace LepmNames;
+
+##
+ * LepmNames — czysta logika (bez I/O) w Z#: walidacja nazw pakietów i celów dla lepm.
+ * Moduł Z# w układzie nula (mod/); H# woła go przez most `# nula:export`.
+ *
+ * STATUS: NIEZWERYFIKOWANY — w środowisku, w którym powstał, nie było kompilatora Z# (zsc/zsi),
+ * a most Z#↔H# nuli nie był uruchamiany (Z-SHARP-GAPS Z1, Z3). Dlatego lepm NIE polega na tym
+ * module: ta sama walidacja działa w H# (`lrpm::pure::safe_name`). Gdy nula udostępni most,
+ * H# deleguje tutaj, a moduł H# znika. Styl jak lpm/mod/zenit.zsharp.
+##
+
+# nula:export
+func validTarget($t) {
+    # cele budowy: iso | oci
+    if ($t == "iso") { return true; }
+    if ($t == "oci") { return true; }
+    return false;
+}
+
+# nula:export
+func validPkgName($name) {
+    # bez spacji, cudzysłowów, średników, $ i ścieżek; maks. 120 znaków
+    if (strlen($name) < 1 || strlen($name) > 120) { return false; }
+    if (substr($name, 0, 1) == "-") { return false; }
+    if (strlen(replace($name, " ", "")) != strlen($name)) { return false; }
+    if (strlen(replace($name, ";", "")) != strlen($name)) { return false; }
+    if (strlen(replace($name, "$", "")) != strlen($name)) { return false; }
+    if (strlen(replace($name, "/", "")) != strlen($name)) { return false; }
+    return true;
+}
