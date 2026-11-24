@@ -1,0 +1,152 @@
+use "bit -> lrpm" from "rp"
+use "bit -> colors"
+use "std -> env" from "env"
+use "std -> fs" from "fs"
+mod lists
+
+;; ═══════════════════════════════════════════════════════════════════════════
+;;  lepm — menedżer pakietów TYLKO do budowy obrazów LegendaryOS.
+;;
+;;  Problem: przy budowie obrazu nie ma jeszcze systemu, więc nie ma czym instalować
+;;  pakietów atomowo (Fedora Silverblue używa tu dnf w buildzie bootc). LegendaryOS ma
+;;  własne narzędzie: lepm buduje rootfs „od zera” z RPM-ów — rpm-md → satsolv → pobranie →
+;;  rozpakowanie → sysusers → hooki — i zapisuje installed.xml dla przyszłego lpm.
+;;  Cała logika siedzi w bibliotece lrpm (współdzielonej z lpm); to jest cienkie CLI.
+;;
+;;  Różnica wobec lpm: lepm NIE jest atomowy, NIE zna wdrożeń/rollbacku i nie trafia do obrazu.
+;; ═══════════════════════════════════════════════════════════════════════════
+
+fn usage() -> string is
+    return "lepm 0.1.0 — bootstrap rootfs LegendaryOS z RPM (bez dnf; tylko budowa obrazów)\n\n  lepm bootstrap --root DIR --repos repos.hk --list plik.list [--list ...] [opcje]\n  lepm plan      (to samo bez pobierania i rozpakowania)\n  lepm sync      --repos repos.hk [--cache DIR] [--release N] [--arch A]   odśwież metadane\n  lepm search    <fraza> --repos repos.hk\n  lepm doctor    sprawdź narzędzia\n  lepm version\n\nOpcje: --root DIR  --repos PLIK  --policy PLIK(compat.hk)  --cache DIR  --release 43  --arch x86_64\n       --list PLIK (wielokrotnie; jedna nazwa pakietu na linię, # komentarz)  --pkg NAZWA (wielokrotnie)  --dry-run"
+end
+
+fn doctor() -> int is
+    let need: [string] = ["curl", "gawk", "bsdtar", "zstd", "sha256sum", "chroot", "mount", "rpmkeys"]
+    let mut bad: int = 0
+    let mut i: int = 0
+    while i < need.len() is
+        if rp::txn::tool_present(need[i]) is
+            write(colors::green("  ✓") + " " + need[i])
+        else is
+            write(colors::yellow("  !") + " brak: " + need[i])
+            bad += 1
+        end
+        i += 1
+    end
+    write("  `rpmkeys` potrzebny tylko przy gpgcheck=true; `bsdtar` zastępuje rpm2cpio+cpio.")
+    if bad > 0 is return 1 end
+    return 0
+end
+
+fn main() -> int is
+    let argv: [string] = env::args()
+    let mut args: [string] = []
+    let mut root: string = ""
+    let mut repos: string = ""
+    let mut policy: string = ""
+    let mut cache: string = "/var/cache/lepm"
+    let mut release: string = "43"
+    let mut arch: string = "x86_64"
+    let mut lists_: [string] = []
+    let mut pkgs: [string] = []
+    let mut dry: bool = false
+    let mut i: int = 1
+    while i < argv.len() is
+        let a: string = argv[i]
+        i += 1
+        if a == "--dry-run" is dry = true
+        else is
+            if i < argv.len() && (a == "--root" || a == "--repos" || a == "--policy" || a == "--cache" || a == "--release" || a == "--arch" || a == "--list" || a == "--pkg") is
+                let v: string = argv[i]
+                i += 1
+                if a == "--root" is root = v end
+                if a == "--repos" is repos = v end
+                if a == "--policy" is policy = v end
+                if a == "--cache" is cache = v end
+                if a == "--release" is release = v end
+                if a == "--arch" is arch = v end
+                if a == "--list" is lists_.push(v) end
+                if a == "--pkg" is pkgs.push(v) end
+            else is args.push(a) end
+        end
+    end
+    if args.len() == 0 || args[0] == "help" || args[0] == "--help" is
+        write(usage())
+        return 0
+    end
+    let cmd: string = args[0]
+    if cmd == "version" is
+        write("lepm 0.1.0")
+        return 0
+    end
+    if cmd == "doctor" is return doctor() end
+    if repos == "" is
+        rp::txn::eprint("brak --repos (plik repos.hk)")
+        return 1
+    end
+    if cmd == "sync" is
+        let e: string = rp::txn::sync_flat(cache, repos, release, arch)
+        if e != "" is
+            rp::txn::eprint(e)
+            return 1
+        end
+        write(colors::green("  ✓") + " metadane odświeżone w " + cache)
+        return 0
+    end
+    if cmd == "search" is
+        if args.len() < 2 is
+            rp::txn::eprint("lepm search <fraza> --repos repos.hk")
+            return 1
+        end
+        let rs: [string] = rp::txn::search_flat(cache, repos, release, arch, args[1])
+        let mut k: int = 0
+        while k < rs.len() is
+            write("  " + rs[k])
+            k += 1
+        end
+        return 0
+    end
+    if cmd == "bootstrap" || cmd == "plan" is
+        if root == "" && cmd == "bootstrap" is
+            rp::txn::eprint("brak --root (katalog docelowy rootfs)")
+            return 1
+        end
+        let want: [string] = lists::collect(lists_, pkgs)
+        if want.len() == 0 is
+            rp::txn::eprint("brak pakietów: podaj --list plik.list albo --pkg nazwa")
+            return 1
+        end
+        let bad: string = lists::validate(want)
+        if bad != "" is
+            rp::txn::eprint(bad)
+            return 1
+        end
+        if root != "" is
+            let r0: string = lists::ensure_root(root, cmd == "plan" || dry)
+            if r0 != "" is
+                rp::txn::eprint(r0)
+                return 1
+            end
+        end
+        write(colors::bold("lepm") + " " + cmd + ": " + rp::txn::istr(want.len()) + " żądanych pakietów, Fedora " + release + " " + arch)
+        let res: [string] = rp::txn::bootstrap(root, cache, repos, policy, release, arch, want, cmd == "plan" || dry)
+        if res.len() == 0 || res[0] != "" is
+            if res.len() > 0 is rp::txn::eprint(res[0]) end
+            let mut x: int = 1
+            while x < res.len() is
+                write(res[x])
+                x += 1
+            end
+            return 1
+        end
+        let mut y: int = 1
+        while y < res.len() is
+            write("  " + res[y])
+            y += 1
+        end
+        write(colors::green("  ✓") + " gotowe (" + rp::txn::istr(res.len() - 1) + " wierszy raportu)")
+        return 0
+    end
+    rp::txn::eprint("nieznana komenda: " + cmd + " (lepm help)")
+    return 1
+end
