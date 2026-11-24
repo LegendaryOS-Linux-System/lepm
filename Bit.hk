@@ -1,0 +1,17 @@
+[package]
+-> name        => lepm
+-> version     => 0.1.0
+-> description => lepm — bootstrap rootfs LegendaryOS z RPM bez dnf (tylko budowa obrazów)
+-> authors     => ["LegendaryOS Team"]
+-> license     => MIT
+-> lang        => h#
+
+[edition]
+-> edition => 2026
+
+[layout]
+-> src => src
+
+[dependencies]
+-> lrpm => newest
+-> colors => newest
