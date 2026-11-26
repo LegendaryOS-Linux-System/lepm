@@ -17,7 +17,7 @@ mod lists
 ;; ═══════════════════════════════════════════════════════════════════════════
 
 fn usage() -> string is
-    return "lepm 0.1.0 — bootstrap rootfs LegendaryOS z RPM (bez dnf; tylko budowa obrazów)\n\n  lepm bootstrap --root DIR --repos repos.hk --list plik.list [--list ...] [opcje]\n  lepm plan      (to samo bez pobierania i rozpakowania)\n  lepm sync      --repos repos.hk [--cache DIR] [--release N] [--arch A]   odśwież metadane\n  lepm search    <fraza> --repos repos.hk\n  lepm doctor    sprawdź narzędzia\n  lepm version\n\nOpcje: --root DIR  --repos PLIK  --policy PLIK(compat.hk)  --cache DIR  --release 43  --arch x86_64\n       --list PLIK (wielokrotnie; jedna nazwa pakietu na linię, # komentarz)  --pkg NAZWA (wielokrotnie)  --dry-run"
+    return "lepm 0.3.0 — bootstrap rootfs LegendaryOS z RPM (bez dnf; tylko budowa obrazów)\n\n  lepm bootstrap --root DIR --repos repos.hk --list plik.list [--list ...] [opcje]\n  lepm plan      (to samo bez pobierania i rozpakowania)\n  lepm sync      --repos repos.hk [--cache DIR] [--release N] [--arch A]   odśwież metadane\n  lepm search    <fraza> --repos repos.hk\n  lepm solve     [--installed installed.xml] [--erase S] [--update S] [--dist-upgrade|--update-all|--verify] [--opt O]  (pełny solver satsolv, tylko plan)\n  lepm lists     pokaż i zwaliduj rozwiązaną listę pakietów (bez sieci)\n  lepm clean     [--cache DIR] usuń cache pobranych RPM-ów i metadanych\n  lepm doctor    sprawdź narzędzia\n  lepm version\n\nOpcje: --root DIR  --repos PLIK  --policy PLIK(compat.hk)  --cache DIR  --release 43  --arch x86_64\n       --list PLIK (wielokrotnie; jedna nazwa pakietu na linię, # komentarz)  --pkg NAZWA (wielokrotnie)  --dry-run\n       --erase S  --update S  --opt O (wielokrotnie)  --installed PLIK\n       S = nazwa | nazwa>=1.2 | glob* | provides:/usr/bin/x ;  O = best no-weak cleandeps allow-downgrade allow-vendorchange allow-uninstall keep-orphans strict-priority lock=N favor=N disfavor=N ..."
 end
 
 fn doctor() -> int is
@@ -50,25 +50,51 @@ fn main() -> int is
     let mut lists_: [string] = []
     let mut pkgs: [string] = []
     let mut dry: bool = false
+    let mut erase: [string] = []
+    let mut update: [string] = []
+    let mut opts: [string] = []
+    let mut installed: string = ""
+    let mut mode: string = ""
     let mut i: int = 1
     while i < argv.len() is
         let a: string = argv[i]
         i += 1
-        if a == "--dry-run" is dry = true
-        else is
-            if i < argv.len() && (a == "--root" || a == "--repos" || a == "--policy" || a == "--cache" || a == "--release" || a == "--arch" || a == "--list" || a == "--pkg") is
-                let v: string = argv[i]
-                i += 1
-                if a == "--root" is root = v end
-                if a == "--repos" is repos = v end
-                if a == "--policy" is policy = v end
-                if a == "--cache" is cache = v end
-                if a == "--release" is release = v end
-                if a == "--arch" is arch = v end
-                if a == "--list" is lists_.push(v) end
-                if a == "--pkg" is pkgs.push(v) end
-            else is args.push(a) end
+        let mut taken: bool = false
+        if a == "--dry-run" is
+            dry = true
+            taken = true
         end
+        if a == "--dist-upgrade" is
+            mode = "dist-upgrade"
+            taken = true
+        end
+        if a == "--update-all" is
+            mode = "update-all"
+            taken = true
+        end
+        if a == "--verify" is
+            mode = "verify"
+            taken = true
+        end
+        let valued: bool = a == "--root" || a == "--repos" || a == "--policy" || a == "--cache" || a == "--release" || a == "--arch" || a == "--list" || a == "--pkg" || a == "--erase" || a == "--update" || a == "--opt" || a == "--installed"
+        if !taken && valued && i < argv.len() is
+            let v: string = argv[i]
+            i += 1
+            taken = true
+            if a == "--root" is root = v end
+            if a == "--repos" is repos = v end
+            if a == "--policy" is policy = v end
+            if a == "--cache" is cache = v end
+            if a == "--release" is release = v end
+            if a == "--arch" is arch = v end
+            if a == "--list" is lists_.push(v) end
+            if a == "--pkg" is pkgs.push(v) end
+            if a == "--erase" is erase.push(v) end
+            if a == "--update" is update.push(v) end
+            if a == "--opt" is opts.push(v) end
+            if a == "--installed" is installed = v end
+        end
+        if !taken is args.push(a) end
     end
     if args.len() == 0 || args[0] == "help" || args[0] == "--help" is
         write(usage())
@@ -76,10 +102,39 @@ fn main() -> int is
     end
     let cmd: string = args[0]
     if cmd == "version" is
-        write("lepm 0.1.0")
+        write("lepm 0.3.0")
         return 0
     end
     if cmd == "doctor" is return doctor() end
+    if cmd == "clean" is
+        let ce: string = rp::txn::clear_dir(cache)
+        if ce != "" is
+            rp::txn::eprint(ce)
+            return 1
+        end
+        write(colors::green("  ✓") + " wyczyszczono " + cache)
+        return 0
+    end
+    if cmd == "lists" is
+        let ml: string = lists::missing_lists(lists_)
+        if ml != "" is
+            rp::txn::eprint(ml)
+            return 1
+        end
+        let w: [string] = lists::collect(lists_, pkgs)
+        let vb: string = lists::validate(w)
+        if vb != "" is
+            rp::txn::eprint(vb)
+            return 1
+        end
+        let mut q: int = 0
+        while q < w.len() is
+            write(w[q])
+            q += 1
+        end
+        write(colors::green("  ✓") + " " + rp::txn::istr(w.len()) + " pakietów, listy poprawne")
+        return 0
+    end
     if repos == "" is
         rp::txn::eprint("brak --repos (plik repos.hk)")
         return 1
@@ -106,9 +161,28 @@ fn main() -> int is
         end
         return 0
     end
+    if cmd == "solve" is
+        let ck: string = rp::txn::check_request(lists::collect(lists_, pkgs), erase, update, opts)
+        if ck != "" is
+            rp::txn::eprint(ck)
+            return 1
+        end
+        let rows: [string] = rp::txn::flat_solve(cache, repos, policy, release, arch, installed, lists::collect(lists_, pkgs), erase, update, mode, opts, false)
+        return lists::print_solve(rows)
+    end
     if cmd == "bootstrap" || cmd == "plan" is
+        let ck2: string = rp::txn::check_request(lists::collect(lists_, pkgs), erase, update, opts)
+        if ck2 != "" is
+            rp::txn::eprint(ck2)
+            return 1
+        end
         if root == "" && cmd == "bootstrap" is
             rp::txn::eprint("brak --root (katalog docelowy rootfs)")
+            return 1
+        end
+        let ml2: string = lists::missing_lists(lists_)
+        if ml2 != "" is
+            rp::txn::eprint(ml2)
             return 1
         end
         let want: [string] = lists::collect(lists_, pkgs)
@@ -128,8 +202,17 @@ fn main() -> int is
                 return 1
             end
         end
+        let real: bool = cmd == "bootstrap" && !dry
+        if real is
+            let lk: string = lists::lock(root, rp::txn::pid_str())
+            if lk != "" is
+                rp::txn::eprint(lk)
+                return 2
+            end
+        end
         write(colors::bold("lepm") + " " + cmd + ": " + rp::txn::istr(want.len()) + " żądanych pakietów, Fedora " + release + " " + arch)
-        let res: [string] = rp::txn::bootstrap(root, cache, repos, policy, release, arch, want, cmd == "plan" || dry)
+        let res: [string] = rp::txn::bootstrap_ex(root, cache, repos, policy, release, arch, want, erase, opts, cmd == "plan" || dry)
+        if real is lists::unlock(root) end
         if res.len() == 0 || res[0] != "" is
             if res.len() > 0 is rp::txn::eprint(res[0]) end
             let mut x: int = 1
