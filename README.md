@@ -32,3 +32,13 @@ Walidacja faktycznie działa w H# (`lrpm::pure`).
 ## Czego lepm NIE robi
 Nie jest atomowy, nie zna wdrożeń/rollbacku FastTree, nie uruchamia skryptletów RPM (zamiast tego: sysusers + hooki z `compat.hk`).
 Zob. [../lrpm/docs/POLICY.md](../lrpm/docs/POLICY.md). **Status: niezweryfikowany** (brak kompilatora H#, libsolv, Fedory w sesji autora).
+
+## 0.2.0 — hartowanie
+- `lepm lists` — walidacja i rozwinięcie list pakietów bez sieci; brakujący plik `--list` jest błędem (wcześniej cicho pomijany).
+- Blokada `<root>/.lepm.lock` z wykrywaniem martwego PID (kod wyjścia 2 gdy zajęte).
+- `lepm clean` — czyści cache z kontrolą bezpiecznej ścieżki.
+
+## 0.3.0 — pełny solver
+`lepm solve [--installed installed.xml] [--erase S] [--update S] [--dist-upgrade|--update-all|--verify] [--opt O] [--pkg S|--list plik]`
+— plan z satsolv (instalacja, wersje, globy, `provides:`, usuwanie z `cleandeps`, aktualizacje, konflikty z opisem).
+`bootstrap`/`plan` przyjmują też `--erase` i `--opt` (np. `--erase systemd --opt no-weak`). Zob. lrpm/docs/SOLVER.md.
