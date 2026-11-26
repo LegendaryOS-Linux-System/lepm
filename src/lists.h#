@@ -52,8 +52,66 @@ end
 pub fn ensure_root(root: string, dry: bool) -> string is
     if dry is return "" end
     if !fs::exists(root) is
-        if !fs::mkdir(root) is return "nie można utworzyć " + root end
+        let me: string = rp::txn::make_dir(root)
+        if me != "" is return "nie można utworzyć " + root end
     end
     if !fs::is_dir(root) is return root + " nie jest katalogiem" end
     return ""
+end
+
+;; Pliki --list, które nie istnieją (literówka w ścieżce nie może po cichu dać pustego rootfs).
+pub fn missing_lists(files: [string]) -> string is
+    let mut i: int = 0
+    while i < files.len() is
+        if !fs::exists(files[i]) is return "brak pliku listy pakietów: " + files[i] end
+        i += 1
+    end
+    return ""
+end
+
+;; Blokada budowy w <root>/.lepm.lock (pid). Nieaktualny pid (proces nie żyje) jest przejmowany.
+;; Zwraca "" gdy blokada zdobyta; inaczej opis.
+pub fn lock(root: string, pid: string) -> string is
+    let lp: string = root + "/.lepm.lock"
+    if fs::exists(lp) is
+        let old: string = rp::pure::trim(fs::read(lp))
+        if old != "" && rp::pure::safe_name(old) && fs::exists("/proc/" + old) is
+            return "inny lepm (pid " + old + ") buduje ten rootfs: " + root
+        end
+    end
+    if !fs::write(lp, pid + "\n") is return "nie można zapisać blokady " + lp end
+    return ""
+end
+
+pub fn unlock(root: string) is
+    let lp: string = root + "/.lepm.lock"
+    rp::txn::remove_file(lp)
+end
+
+;; Wiersze flat_solve -> czytelny raport; kod wyjścia: 0 plan, 1 błąd/konflikt.
+pub fn print_solve(rows: [string]) -> int is
+    let t: string = rp::pure::tab()
+    let mut code: int = 0
+    let mut n: int = 0
+    let mut i: int = 0
+    while i < rows.len() is
+        let f: [string] = rp::pure::split(rows[i], t)
+        i += 1
+        if f[0] == "E" is
+            rp::txn::eprint(f[1])
+            code = 1
+        end
+        if f[0] == "P" is
+            write("  problem: " + f[1])
+        end
+        if f[0] == "W" is
+            write("  uwaga: " + f[1])
+        end
+        if f[0] == "A" && f.len() >= 3 is
+            write("  " + f[1] + " " + f[2])
+            n += 1
+        end
+    end
+    if code == 0 is write("  " + rp::txn::istr(n) + " zmian") end
+    return code
 end
