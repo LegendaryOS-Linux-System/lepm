@@ -79,7 +79,7 @@ pub fn lock(root: string, pid: string) -> string is
             return "inny lepm (pid " + old + ") buduje ten rootfs: " + root
         end
     end
-    if !fs::write(lp, pid + "\n") is return "nie można zapisać blokady " + lp end
+    if !rp::meta::write_text(lp, pid + "\n") is return "nie można zapisać blokady " + lp end
     return ""
 end
 
